@@ -1,5 +1,5 @@
 # Use lightweight official Python image
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 # Set environment system variables
 ENV PYTHONUNBUFFERED=1 \

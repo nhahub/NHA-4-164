@@ -11,8 +11,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./app:/app/app        # Mount local app directory for dynamic reload
-      - ./data:/app/data      # Shared data folder for inputs/predictions
+       - ./app:/app/app
+       - ./data:/app/data
+       - ../../milestone1-ml-pipeline/artifacts:/app/artifacts  # mount M1 artifacts directly
     environment:
       - PYTHONUNBUFFERED=1
     restart: always
