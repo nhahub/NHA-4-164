@@ -1,0 +1,47 @@
+# ============================================================
+# Enhanced Pipeline for Churn Prediction (DEPI)
+# Requirements File
+# Python version: 3.11
+# ============================================================
+# Install all dependencies with:
+#   pip install -r requirements.txt
+# ============================================================
+
+# ── Data Handling ────────────────────────────────────────────
+pandas==2.2.2
+numpy==1.26.4
+
+# ── Dataset Download ─────────────────────────────────────────
+kagglehub==0.3.4
+
+# ── Database / SQL ───────────────────────────────────────────
+# sqlite3 is built into Python — no install needed
+
+# ── Machine Learning ─────────────────────────────────────────
+scikit-learn==1.4.2
+xgboost==2.0.3
+imbalanced-learn==0.12.3       # SMOTE (class imbalance handling)
+
+# ── Model Serialization ──────────────────────────────────────
+joblib==1.4.2
+
+# ── Visualization ────────────────────────────────────────────
+matplotlib==3.8.4
+seaborn==0.13.2
+
+# ── Jupyter / Notebook Runtime ───────────────────────────────
+jupyter==1.0.0
+ipykernel==6.29.4
+nbformat==5.10.4
+
+# ── API Deployment (Milestone 3) ─────────────────────────────
+fastapi==0.111.0
+uvicorn==0.29.0
+pydantic==2.7.1
+pydantic-settings==2.2.1
+
+# ── Pipeline Orchestration (Milestone 3) ─────────────────────
+apache-airflow==2.9.1
+
+# ── Monitoring / Logging (Milestone 4) ───────────────────────
+python-json-logger==2.0.7
