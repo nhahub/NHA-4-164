@@ -1,0 +1,23 @@
+# Milestone 3 — API Deployment Dependencies
+# Install with: pip install -r requirements.txt
+
+# ── API Framework ─────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn==0.29.0
+pydantic==2.7.1
+pydantic-settings==2.2.1
+
+# ── Data & ML ─────────────────────────────────────────────────
+# Versions MUST match what Milestone 1 and 2 used to avoid
+# model/scaler compatibility issues when loading .pkl files
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.4.2
+xgboost==2.0.3
+joblib==1.4.2
+
+# ── Airflow DAG ───────────────────────────────────────────────
+apache-airflow==2.9.1
+
+# ── Utilities ─────────────────────────────────────────────────
+python-multipart==0.0.9

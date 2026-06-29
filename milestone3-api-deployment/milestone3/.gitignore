@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Local Environment configuration
+.env
+.env.*
+
+# Local data files and pipelines
+data/inputs/*
+data/predictions/*
+!data/inputs/.gitkeep
+!data/predictions/.gitkeep
+
+# IDE Configs
+.vscode/
+.idea/
+.ipynb_checkpoints/
+
+# Local model evaluation tests
+scratch/

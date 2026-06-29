@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # 1. FastAPI Real-time Web API service
+  web-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telco_churn_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app        # Mount local app directory for dynamic reload
+      - ./data:/app/data      # Shared data folder for inputs/predictions
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: always
+
+  # 2. Apache Airflow Automation Pipeline (Lightweight Standalone Setup)
+  airflow:
+    image: apache/airflow:2.7.1-python3.10
+    container_name: telco_churn_airflow
+    command: standalone
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags            # Mount local Airflow DAGs
+      - ./app/models:/app/app/models        # Mount model folder under /app/app/models
+      - ./app/models:/app/models            # Secondary fallback mount
+      - ./data:/app/data                    # Shared data folder under /app/data
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+      - AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL=10
+      - _PIP_ADDITIONAL_REQUIREMENTS=pandas xgboost==1.7.6 scikit-learn joblib pydantic
+    user: "${AIRFLOW_UID:-50000}:0"         # Ensure standard Airflow user permissions
+    restart: always
