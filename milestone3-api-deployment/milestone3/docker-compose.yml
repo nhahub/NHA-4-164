@@ -20,16 +20,16 @@ services:
 
   # 2. Apache Airflow Automation Pipeline (Lightweight Standalone Setup)
   airflow:
-    image: apache/airflow:2.7.1-python3.10
+    image: apache/airflow:2.7.1-python3.11
     container_name: telco_churn_airflow
-    command: standalone
+    command: bash -c "rm -f /opt/airflow/airflow-webserver.pid /opt/airflow/airflow-scheduler.pid; airflow standalone"
     ports:
       - "8082:8080"
     volumes:
       - airflow_home:/opt/airflow                 
       - ./dags:/opt/airflow/dags                   
       - ./app/models:/app/app/models               
-      - ./app/models:/app/models                  
+      - ./app/models:/app/models                   
       - ./data:/app/data                           
     environment:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
@@ -37,8 +37,8 @@ services:
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
       - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
       - AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL=10
-      - _PIP_ADDITIONAL_REQUIREMENTS=pandas==2.2.2 xgboost==2.0.3 scikit-learn==1.8.0 joblib==1.4.2 pydantic==2.7.1
-    user: "${AIRFLOW_UID:-50000}:0"                # Ensure standard Airflow user permissions
+      - _PIP_ADDITIONAL_REQUIREMENTS=pandas==2.2.2 numpy==1.26.4 xgboost==2.0.3 scikit-learn==1.8.0 joblib==1.4.2 pydantic==2.7.1
+    user: "${AIRFLOW_UID:-50000}:0"                
     restart: always
 
 volumes:
