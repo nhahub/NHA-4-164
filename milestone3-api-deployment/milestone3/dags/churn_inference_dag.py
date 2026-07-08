@@ -5,7 +5,13 @@ Automates the full daily batch churn prediction pipeline:
 
 Task 1 → mock_raw_data_task:
     Simulates pulling fresh customer records from a database.
-    In production this would be a database query or API call.
+    FIX: previously returned the same 3 hardcoded rows every run. Now
+    samples real, held-out customers from Milestone 1's X_test.csv (never
+    used in training) and reverses the scaling/encoding Milestone 1 applied,
+    so Task 2 can re-process them exactly like fresh incoming data. Which
+    customers get sampled is seeded by the DAG's logical date, so a given
+    date always reproduces the same batch (safe for retries/backfills)
+    while different dates genuinely differ.
 
 Task 2 → feature_engineering_task:
     Replicates the exact feature engineering from Milestone 1:
@@ -13,17 +19,24 @@ Task 2 → feature_engineering_task:
     - Calculates total_services the SAME way as Milestone 1 SQL Query 8
       (8 services: 6 add-ons + PhoneService + InternetService)
     - Applies MinMaxScaler (loaded from Milestone 1 artifact) to the 3
-      continuous columns — this was missing before and caused wrong predictions
+      continuous columns
 
 Task 3 → batch_inference_task:
     Loads best_churn_model.pkl (winner from Milestone 2 evaluation),
-    runs predictions on the engineered batch, saves results CSV.
+    runs predictions on the engineered batch, saves results.
+    FIX: previously overwrote a single fixed results file every run, so
+    there was no history to plot drift against. Now keeps a dated snapshot
+    per run AND a rolling history file. The history file is an idempotent
+    upsert by run_date: re-running the same date replaces that date's rows
+    only, so retries/backfills never create duplicates, and every other
+    date's history is left untouched.
 
 Flow: mock_data >> feature_engineering >> batch_predictions
 """
 
 import os
 import json
+import hashlib
 import joblib
 import logging
 from datetime import datetime, timedelta
@@ -64,14 +77,17 @@ default_args = {
 # ── File paths (Docker volume mounts) ────────────────────────────────────────
 RAW_DATA_PATH        = "/app/data/inputs/raw_daily_data.csv"
 ENGINEERED_DATA_PATH = "/app/data/inputs/engineered_daily_data.csv"
-RESULTS_PATH         = "/app/data/predictions/daily_results.csv"
-_LOCAL_RESULTS_PATH  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "predictions", "daily_results.csv")
+RESULTS_DIR          = "/app/data/predictions"
+HISTORY_PATH         = "/app/data/predictions/prediction_history.csv"
+_LOCAL_RESULTS_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "predictions")
+_LOCAL_HISTORY_PATH  = os.path.join(_LOCAL_RESULTS_DIR, "prediction_history.csv")
 
-# Milestone 1 artifacts
+# Milestone 1 artifacts (mounted into the container)
 SCALER_PATH          = "/app/app/models/minmax_scaler.pkl"
 FEATURE_COLS_PATH    = "/app/app/models/feature_columns.json"
+X_TEST_PATH          = "/app/app/models/X_test.csv"
 
-# Milestone 2 best model — NOT hardcoded to XGBoost anymore
+# Milestone 2 best model
 MODEL_PATH           = "/app/app/models/best_churn_model.pkl"
 
 # Fallback paths for local testing outside Docker
@@ -100,56 +116,84 @@ def get_feature_cols_path():
         os.path.join(os.path.dirname(__file__), "..", "app", "models", "feature_columns.json")
     )
 
+def get_x_test_path():
+    return _resolve(
+        X_TEST_PATH,
+        os.path.join(os.path.dirname(__file__), "..", "app", "models", "X_test.csv")
+    )
+
 
 # ── TASK 1: Raw Data Extraction ───────────────────────────────────────────────
 
-def mock_raw_data_task():
+def mock_raw_data_task(**context):
     """
     Simulates pulling fresh daily customer records from a source database.
 
-    In production this would be replaced with:
-        df = pd.read_sql("SELECT * FROM customers WHERE date = TODAY", conn)
+    FIX (gap 1): instead of 3 hardcoded rows repeated forever, this samples
+    real customers from Milestone 1's held-out X_test.csv (never seen during
+    training — the closest thing this project has to "new" customers).
 
-    Saves raw records to RAW_DATA_PATH for Task 2 to pick up.
-    Note: raw records use string values for categorical fields
-    (e.g. Contract="One year") — encoding happens in Task 2,
-    exactly like Milestone 1 did it.
+    X_test.csv is already scaled and one-hot encoded, so we reverse both
+    steps to hand Task 2 the same kind of raw, human-readable row it would
+    get from a real source system (e.g. Contract="One year" instead of
+    Contract_One year=1, tenure=12 instead of tenure=0.16).
+
+    Sampling is seeded by the DAG's logical date (`ds`): the same date
+    always samples the same rows (safe to retry/backfill), while different
+    dates sample different customers.
+
+    Note: X_test.csv doesn't retain the original PhoneService column (it
+    was dropped upstream in Milestone 1), so it's approximated here as
+    "Yes" for every row — true for ~90% of the source dataset. This can
+    shift total_services by 1 for the small minority of customers who
+    didn't have phone service; everything else is the real customer record.
     """
-    logger.info("Task 1: Extracting raw customer records...")
+    logger.info("Task 1: Sampling real held-out customers from Milestone 1...")
     os.makedirs(os.path.dirname(RAW_DATA_PATH), exist_ok=True)
 
-    raw_df = pd.DataFrame([
-        {
-            "CustomerID": "1001-A", "tenure": 12,
-            "MonthlyCharges": 70.05, "TotalCharges": 840.60,
-            "Contract": "One year", "InternetService": "Fiber optic",
-            "PaymentMethod": "Electronic check", "PhoneService": "Yes",
-            "OnlineSecurity": 1, "OnlineBackup": 0, "DeviceProtection": 1,
-            "TechSupport": 1, "StreamingTV": 0, "StreamingMovies": 0,
-            "SeniorCitizen": 0, "Partner": 1, "Dependents": 0, "PaperlessBilling": 1
-        },
-        {
-            "CustomerID": "2002-B", "tenure": 3,
-            "MonthlyCharges": 45.15, "TotalCharges": 135.45,
-            "Contract": "Month-to-month", "InternetService": "DSL",
-            "PaymentMethod": "Mailed check", "PhoneService": "No",
-            "OnlineSecurity": 0, "OnlineBackup": 0, "DeviceProtection": 0,
-            "TechSupport": 0, "StreamingTV": 0, "StreamingMovies": 1,
-            "SeniorCitizen": 1, "Partner": 0, "Dependents": 0, "PaperlessBilling": 1
-        },
-        {
-            "CustomerID": "3003-C", "tenure": 72,
-            "MonthlyCharges": 115.80, "TotalCharges": 8337.60,
-            "Contract": "Two year", "InternetService": "Fiber optic",
-            "PaymentMethod": "Bank transfer (automatic)", "PhoneService": "Yes",
-            "OnlineSecurity": 1, "OnlineBackup": 1, "DeviceProtection": 1,
-            "TechSupport": 1, "StreamingTV": 1, "StreamingMovies": 1,
-            "SeniorCitizen": 0, "Partner": 1, "Dependents": 1, "PaperlessBilling": 0
-        }
-    ])
+    ds = context.get("ds") or datetime.now().strftime("%Y-%m-%d")
+    seed = int(hashlib.md5(ds.encode()).hexdigest(), 16) % (2**32)
 
+    x_test = pd.read_csv(get_x_test_path())
+    scaler = joblib.load(get_scaler_path())
+
+    n_records = np.random.RandomState(seed).randint(4, 8)
+    sample = x_test.sample(n=n_records, random_state=seed).reset_index(drop=True)
+
+    # Reverse the scaling Milestone 1 applied, back to real-world values
+    continuous_cols = ["tenure", "MonthlyCharges", "TotalCharges"]
+    sample[continuous_cols] = scaler.inverse_transform(sample[continuous_cols]).round(2)
+    sample["tenure"] = sample["tenure"].round().astype(int)
+
+    # Reverse the one-hot encoding back to single categorical columns
+    def decode_onehot(df, prefix, options):
+        cols = [f"{prefix}_{opt}" for opt in options]
+        return df[cols].idxmax(axis=1).str.replace(f"{prefix}_", "", regex=False)
+
+    sample["InternetService"] = decode_onehot(sample, "InternetService", ["DSL", "Fiber optic", "No"])
+    sample["Contract"] = decode_onehot(sample, "Contract", ["Month-to-month", "One year", "Two year"])
+    sample["PaymentMethod"] = decode_onehot(
+        sample, "PaymentMethod",
+        ["Bank transfer (automatic)", "Credit card (automatic)", "Electronic check", "Mailed check"]
+    )
+
+    # Not preserved in X_test.csv — see docstring note above
+    sample["PhoneService"] = "Yes"
+    sample["CustomerID"] = [f"{ds}-{i + 1:02d}" for i in range(len(sample))]
+
+    raw_cols = [
+        "CustomerID", "tenure", "MonthlyCharges", "TotalCharges",
+        "Contract", "InternetService", "PaymentMethod", "PhoneService",
+        "OnlineSecurity", "OnlineBackup", "DeviceProtection", "TechSupport",
+        "StreamingTV", "StreamingMovies",
+        "SeniorCitizen", "Partner", "Dependents", "PaperlessBilling",
+    ]
+    raw_df = sample[raw_cols]
     raw_df.to_csv(RAW_DATA_PATH, index=False)
-    logger.info(f"Task 1 complete: {len(raw_df)} records saved to {RAW_DATA_PATH}")
+    logger.info(
+        f"Task 1 complete: {len(raw_df)} real held-out customers sampled "
+        f"to {RAW_DATA_PATH} (date={ds}, seed={seed})"
+    )
 
 
 # ── TASK 2: Feature Engineering ───────────────────────────────────────────────
@@ -158,13 +202,10 @@ def feature_engineering_task():
     """
     Replicates the EXACT feature engineering pipeline from Milestone 1.
 
-    Key fix: total_services now counts the same 8 services as Milestone 1
-    SQL Query 8 (previously only counted 6, missing PhoneService and
-    InternetService — this caused a feature mismatch at inference time).
-
-    Also applies MinMaxScaler to tenure, MonthlyCharges, TotalCharges —
-    this is the critical step that was completely missing from the original
-    DAG, causing the model to receive raw unscaled numbers.
+    Counts total_services the same way as Milestone 1 SQL Query 8
+    (6 add-ons + PhoneService + has-any-InternetService), one-hot encodes
+    the categorical fields, aligns to the exact 24-column order Milestone 1
+    exported, then applies the same MinMaxScaler to the 3 continuous columns.
     """
     logger.info("Task 2: Running feature engineering pipeline...")
 
@@ -174,8 +215,6 @@ def feature_engineering_task():
     df = pd.read_csv(RAW_DATA_PATH)
 
     # ── 2a. total_services (matches Milestone 1 SQL Query 8 exactly) ─────────
-    # Counts 8 services:
-    # 6 add-on services + PhoneService + has any InternetService
     add_on_services = [
         "OnlineSecurity", "OnlineBackup", "DeviceProtection",
         "TechSupport", "StreamingTV", "StreamingMovies"
@@ -204,18 +243,13 @@ def feature_engineering_task():
     with open(feature_cols_path) as f:
         expected_cols = json.load(f)
 
-    # Add any missing columns as 0 (e.g. a payment method not in today's batch)
     for col in expected_cols:
         if col not in df.columns:
             df[col] = 0.0
 
-    # Keep only the model's expected columns in the correct order
     df = df[expected_cols]
 
     # ── 2d. Apply MinMaxScaler from Milestone 1 ───────────────────────────────
-    # THE CRITICAL FIX: scale the 3 continuous columns the same way they
-    # were scaled during training. Without this, tenure=12 goes into the
-    # model as 12.0 instead of ~0.16, which breaks all predictions.
     scaler_path = get_scaler_path()
     scaler = joblib.load(scaler_path)
     continuous_cols = ["tenure", "MonthlyCharges", "TotalCharges"]
@@ -228,13 +262,20 @@ def feature_engineering_task():
 
 # ── TASK 3: Batch Inference ───────────────────────────────────────────────────
 
-def batch_inference_task():
+def batch_inference_task(**context):
     """
-    Loads best_churn_model.pkl (selected by Milestone 2 evaluation),
-    runs it on the engineered daily batch, and saves a prediction report.
+    Loads best_churn_model.pkl, runs it on the engineered daily batch,
+    and saves results.
 
-    Because Task 2 already applied the scaler and aligned columns,
-    this task is purely: load → predict → save. Clean and simple.
+    FIX (gap 2): writes two things instead of one fixed, overwritten file:
+      1. A dated snapshot (daily_results_<ds>.csv) — one immutable file
+         per run, safe to overwrite on retry since it only ever describes
+         that one date.
+      2. A rolling history file (prediction_history.csv) that a dashboard
+         can watch grow over time — but as an IDEMPOTENT UPSERT by
+         run_date: if this date's rows already exist in history (e.g. the
+         task is retried, or someone re-triggers the same date), they are
+         replaced, not duplicated. Every other date's rows are untouched.
     """
     logger.info("Task 3: Running batch inference...")
 
@@ -254,10 +295,11 @@ def batch_inference_task():
     preds = model.predict(df)
     probs = model.predict_proba(df)[:, 1]
 
-    # Reload raw data just for CustomerID to include in results
     raw_df = pd.read_csv(RAW_DATA_PATH)
+    ds = context.get("ds") or datetime.now().strftime("%Y-%m-%d")
 
     results_df = pd.DataFrame({
+        "run_date":           ds,
         "CustomerID":         raw_df["CustomerID"],
         "churn_prediction":   preds,
         "churn_probability":  [round(float(p), 4) for p in probs],
@@ -267,18 +309,31 @@ def batch_inference_task():
         "prediction_timestamp": datetime.now().isoformat()
     })
 
-    # Save to Docker path if running in container, else local path
-    save_path = RESULTS_PATH if os.path.exists('/app') else os.path.abspath(_LOCAL_RESULTS_PATH)
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    results_df.to_csv(save_path, index=False)
+    in_container = os.path.exists('/app')
+    results_dir = RESULTS_DIR if in_container else os.path.abspath(_LOCAL_RESULTS_DIR)
+    os.makedirs(results_dir, exist_ok=True)
 
-    # Summary log
+    # 1. Dated snapshot — always safe to overwrite, describes only this date
+    snapshot_path = os.path.join(results_dir, f"daily_results_{ds}.csv")
+    results_df.to_csv(snapshot_path, index=False)
+
+    # 2. Rolling history — idempotent upsert by run_date
+    history_path = HISTORY_PATH if in_container else os.path.abspath(_LOCAL_HISTORY_PATH)
+    if os.path.isfile(history_path):
+        history_df = pd.read_csv(history_path)
+        history_df = history_df[history_df["run_date"].astype(str) != str(ds)]
+        combined = pd.concat([history_df, results_df], ignore_index=True)
+    else:
+        combined = results_df
+    combined.to_csv(history_path, index=False)
+
     high_risk = (results_df["risk_level"] == "HIGH").sum()
     logger.info(
         f"Task 3 complete: {len(results_df)} predictions saved. "
         f"High risk: {high_risk}/{len(results_df)}"
     )
-    logger.info(f"Results saved to: {RESULTS_PATH}")
+    logger.info(f"Snapshot saved to: {snapshot_path}")
+    logger.info(f"History upserted at: {history_path} ({len(combined)} total rows)")
 
 
 # ── AIRFLOW DAG DEFINITION ────────────────────────────────────────────────────
@@ -308,5 +363,4 @@ with DAG(
         python_callable=batch_inference_task
     )
 
-    # Task dependency: Task1 → Task2 → Task3
     mock_data >> feature_engineering >> batch_predictions
