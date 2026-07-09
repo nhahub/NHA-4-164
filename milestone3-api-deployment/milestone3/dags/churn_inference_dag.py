@@ -298,9 +298,18 @@ def batch_inference_task(**context):
     raw_df = pd.read_csv(RAW_DATA_PATH)
     ds = context.get("ds") or datetime.now().strftime("%Y-%m-%d")
 
+    # Carry key input fields alongside each prediction — not required for
+    # scoring (that already happened above), but needed so a dashboard can
+    # break churn risk down by Contract / InternetService / PaymentMethod,
+    # not just plot probability over time.
     results_df = pd.DataFrame({
         "run_date":           ds,
         "CustomerID":         raw_df["CustomerID"],
+        "tenure":             raw_df["tenure"],
+        "MonthlyCharges":     raw_df["MonthlyCharges"],
+        "Contract":           raw_df["Contract"],
+        "InternetService":    raw_df["InternetService"],
+        "PaymentMethod":      raw_df["PaymentMethod"],
         "churn_prediction":   preds,
         "churn_probability":  [round(float(p), 4) for p in probs],
         "risk_level":         ["HIGH" if p >= 0.7 else "MEDIUM" if p >= 0.4 else "LOW"

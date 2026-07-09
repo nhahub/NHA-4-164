@@ -1,0 +1,35 @@
+# Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# VS Code / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
+
+# General logs
+*.log
+
+# Generated runtime outputs
+**/prediction_logs.csv
+**/prediction_history.csv
+**/daily_results*.csv
+**/raw_*.csv
+**/engineered_*.csv
+**/test_write.txt
