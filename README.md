@@ -157,16 +157,6 @@ docker compose run --rm web-api python train_and_save_model.py
 docker compose up
 ```
 
-> **Note on first startup time:** the `airflow` service installs `pandas`,
-> `numpy`, `xgboost`, `scikit-learn`, `joblib`, and `pydantic` via
-> `_PIP_ADDITIONAL_REQUIREMENTS` on **every container start** (Airflow's own
-> warning: *"this is a development/test feature only"*). `xgboost` alone is
-> ~300MB, so on a slow connection this can take several minutes and will
-> re-download every time you run `docker compose up`. If this becomes a
-> problem, an optional `Dockerfile.airflow` can bake these packages into the
-> image once at build time instead — ask your team lead if this hasn't been
-> added yet.
-
 ### What's available after startup
 
 | Service | URL | Description |
