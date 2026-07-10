@@ -18,7 +18,7 @@ from app.services.inference import inference_service
 # Initialize FastAPI App
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Production MLOps pipeline for Customer Churn classification using XGBoost.",
+    description="Production MLOps pipeline for Customer Churn classification.",
     version="1.0.0",
     docs_url=None,  # Disable default OpenAPI Swagger docs (custom themed one below)
 )
@@ -79,9 +79,11 @@ async def check_health():
     """Top-level health check (also available at /api/v1/churn/health)."""
     try:
         inference_service._load_model()
+        model_file = os.path.basename(inference_service.model_path)
+        model_type = type(inference_service._model).__name__   # e.g. "RandomForestClassifier"
         return {
             "status": "healthy",
-            "message": "XGBoost customer churn model is fully loaded and operational.",
+            "message": f"Churn model ({model_type}, file: {model_file}) is fully loaded and operational.",
             "model_path": inference_service.model_path,
         }
     except Exception as e:
