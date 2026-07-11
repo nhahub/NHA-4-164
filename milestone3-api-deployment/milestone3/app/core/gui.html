@@ -722,7 +722,7 @@
                         <div class="metrics-cards">
                             <div class="metric-card">
                                 <span class="metric-label">Model Pipeline</span>
-                                <span class="metric-value" style="font-size: 1.2rem; white-space: nowrap;">XGBoost Churn v1.0</span>
+                                <span class="metric-value" style="font-size: 1.2rem; white-space: nowrap;">Random Forest Churn v1.0</span>
                             </div>
                             <div class="metric-card">
                                 <span class="metric-label">Response Time</span>
@@ -749,7 +749,7 @@
                                 </div>
                                 <div style="font-size: 0.85rem;">
                                     <div style="font-weight: 600;">Low Latency</div>
-                                    <div style="color: var(--text-secondary); font-size: 0.75rem;">Optimized XGBoost</div>
+                                    <div style="color: var(--text-secondary); font-size: 0.75rem;">Optimized Random Forest</div>
                                 </div>
                             </div>
                         </div>
@@ -961,7 +961,7 @@
                         <div class="spinner"></div>
                         <h3 style="font-weight: 600; color: var(--text-secondary); margin-top: 0.5rem;">Executing Model</h3>
                         <p style="font-size: 0.85rem; color: var(--text-muted);">
-                            Querying XGBoost prediction model...
+                            Querying Random Forest prediction model...
                         </p>
                     </div>
 
@@ -1074,7 +1074,7 @@
                 if (data.status === 'healthy') {
                     indicator.className = 'status-indicator healthy';
                     title.innerText = 'Healthy & Operational';
-                    desc.innerText = data.message || 'XGBoost predictive pipeline is active and verified.';
+                    desc.innerText = data.message || 'Churn predictive pipeline is active and verified.';
                 } else {
                     indicator.className = 'status-indicator degraded';
                     title.innerText = 'Degraded Performance';
@@ -1179,7 +1179,7 @@
                     explanation.innerText = `Stable customer with low churn likelihood (${percentage}%). Subscription health exhibits positive engagement trends.`;
                 }
 
-                modelVer.innerText = `Inference Version: ${result.model_version || 'XGBoost v1.0'}`;
+                modelVer.innerText = `Inference Version: ${result.model_version || 'best_churn_model.pkl'}`;
                 
                 lucide.createIcons();
 
