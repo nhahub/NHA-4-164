@@ -4,6 +4,18 @@ A full end-to-end MLOps pipeline for predicting customer churn using the IBM Tel
 
 ---
 
+## Screenshots
+
+**Real-time prediction console (Milestone 3 — FastAPI GUI)**
+
+![Prediction Console](docs/screenshots/gui_prediction_console.png)
+
+**Power BI monitoring dashboard (Milestone 4)**
+
+![Power BI Dashboard](docs/screenshots/powerbi_dashboard.png)
+
+---
+
 ## Project Structure
 
 ```
@@ -166,6 +178,11 @@ docker compose up
 | Health Check | `http://localhost:8000/health` | Confirms all 3 artifacts loaded |
 | Airflow UI | `http://localhost:8082` | Trigger and monitor the daily DAG |
 
+**Prediction console preview:**
+
+![Prediction Console](docs/screenshots/gui_prediction_console.png)
+
+
 ### Airflow login
 Username: `admin` — password is printed in terminal on first startup:
 ```
@@ -221,30 +238,18 @@ The DAG `telco_churn_daily_inference_pipeline` runs `@daily` with 3 tasks:
 
 ```
 Task 1: mock_raw_daily_data
-    → Samples real, held-out customers from Milestone 1's X_test.csv
-      (never used in training), reverses the scaling/encoding so Task 2
-      can re-process them like fresh incoming data. Which customers get
-      sampled is seeded by the DAG's logical date — a given date always
-      reproduces the same batch (safe for retries/backfills), while
-      different dates genuinely differ.
+    → Simulates pulling fresh customer records from a database
 
 Task 2: perform_feature_engineering
     → Encodes features, calculates total_services (8 services),
       applies MinMaxScaler from Milestone 1
 
 Task 3: execute_batch_predictions
-    → Loads best_churn_model.pkl, runs predictions, tags each row
-      HIGH/MEDIUM/LOW risk, and saves results two ways (see below)
+    → Loads best_churn_model.pkl, runs predictions,
+      saves results with risk levels (HIGH/MEDIUM/LOW)
 ```
 
-**Results are saved to two places:**
-
-| File | Behavior |
-|---|---|
-| `data/predictions/daily_results_<run_date>.csv` | One immutable snapshot per run — never overwritten |
-| `data/predictions/prediction_history.csv` | Rolling history across all runs — **idempotent upsert by `run_date`**: re-running the same date replaces only that date's rows, so retries/backfills never create duplicates |
-
-`prediction_history.csv` columns: `run_date`, `CustomerID`, `tenure`, `MonthlyCharges`, `Contract`, `InternetService`, `PaymentMethod`, `churn_prediction`, `churn_probability`, `risk_level`, `model_used`, `prediction_timestamp`. This is the file Power BI should point at for trend and breakdown charts (see Milestone 4 below).
+Results saved to: `data/predictions/daily_results.csv`
 
 ### Running without Docker (local testing)
 ```bash
@@ -262,20 +267,15 @@ python run_pipeline.py
 ## Milestone 4 — Monitoring & Reporting
 
 **What it does:**
-- Logs every real-time prediction automatically to a CSV file for drift monitoring
-- Accumulates every daily batch run into a second CSV, for multi-day trend and breakdown charts
-- Provides data for Power BI dashboards showing churn trends over time
-
-### Two data sources feed the dashboard
-
-| Source | Path | Best for |
-|---|---|---|
-| Real-time API log | `milestone3-api-deployment/milestone3/app/data/predictions/prediction_logs.csv` | Every manual/GUI/API prediction, with full input fields |
-| Daily batch history | `milestone3-api-deployment/milestone3/data/predictions/prediction_history.csv` | Multi-day trend charts — one row per customer per DAG run, growing over time |
+- Logs every prediction automatically to a CSV file for drift monitoring
+- Provides data for Power BI dashboard showing churn trends over time
 
 ### Prediction Logging (automatic)
 
-Every call to `/api/v1/churn/predict` automatically appends a row to `prediction_logs.csv`.
+Every call to `/api/v1/churn/predict` automatically appends a row to:
+```
+milestone3-api-deployment/milestone3/app/data/predictions/prediction_logs.csv
+```
 
 Logged fields per prediction:
 
@@ -290,20 +290,21 @@ Logged fields per prediction:
 | `churn_prediction` | 0 = stays, 1 = churns |
 | `churn_probability` | Model confidence (0.0–1.0) |
 
-### Batch History (automatic, via Airflow)
-
-Every DAG run appends/upserts into `prediction_history.csv` (see Milestone 3 above for the full column list). Unlike `prediction_logs.csv`, this file is keyed by `run_date`, so it's the right source for a "churn probability over time" trend line spanning multiple days.
-
 ### How to connect to Power BI
 
 1. Open **Power BI Desktop**
 2. Click **Get Data** → **Text/CSV**
-3. Navigate to `prediction_logs.csv` (real-time) or `prediction_history.csv` (batch trend) — or both, as separate queries
+3. Navigate to `prediction_logs.csv`
 4. Build these charts:
-   - **Line chart** — average `churn_probability` by `run_date` (from `prediction_history.csv`) — drift over time
-   - **Bar chart** — average churn rate by `Contract` type (either source)
-   - **Pie chart** — churn distribution by `InternetService` (either source)
+   - **Line chart** — `churn_probability` over `timestamp` (drift monitoring)
+   - **Bar chart** — average churn rate by `Contract` type
+   - **Pie chart** — churn distribution by `InternetService`
    - **KPI card** — overall churn rate today vs. yesterday
+
+**Dashboard preview:**
+
+![Power BI Dashboard](docs/screenshots/powerbi_dashboard.png)
+
 
 ### Model Drift Detection
 
